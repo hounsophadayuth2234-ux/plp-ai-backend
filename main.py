@@ -83,3 +83,9 @@ async def pdf_to_word_api(file: UploadFile = File(...)):
             os.remove(tmp_pdf_path)
         if os.path.exists(tmp_docx_path):
             os.remove(tmp_docx_path)
+
+# 🟢 បន្ថែមផ្នែកខាងក្រោមនេះដើម្បី Binding Port របស់ Render
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("PORT", 10000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)
