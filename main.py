@@ -22,45 +22,61 @@ app.add_middleware(
 def read_root():
     return {"status": "PLP AI Engine is running!"}
 
-# 1. AI កាត់ Background (ប្រើប្រាស់ AI Model u2net ផ្ទាល់ រក្សារូបមនុស្សស្អាត 100%)
+# ១. API កាត់ Background
 @app.post("/api/remove-bg")
 async def remove_background_api(file: UploadFile = File(...)):
     contents = await file.read()
     output = remove(contents)
     return Response(content=output, media_type="image/png")
 
-# 2. បង្កើនភាពច្បាស់ (រក្សាពណ៌ធម្មជាតិ និងដំឡើង Sharpness ស្រាលៗ)
+# ២. API បង្កើនភាពច្បាស់ (បំបែក 2 Mode ដាច់ពីគ្នា)
 @app.post("/api/enhance-doc")
 async def enhance_doc_api(file: UploadFile = File(...), mode: str = "photo"):
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     
+    if img is None:
+        return Response(status_code=400, content="Invalid image")
+
     if mode == "doc":
-        # សម្រាប់សន្លឹកកិច្ចការ/តារាងអក្សរ៖ បង្កើន Contrast អក្សរ និងសម្អាតផ្ទៃស
-        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-        # ដកស្រមោលចេញដោយប្រើ Morphological filter
-        dilated = cv2.dilate(gray, np.ones((7, 7), np.uint8))
-        bg = cv2.medianBlur(dilated, 21)
-        diff = 255 - cv2.absdiff(gray, bg)
-        norm = cv2.normalize(diff, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
-        enhanced = cv2.cvtColor(norm, cv2.COLOR_GRAY2BGR)
-    else:
-        # សម្រាប់រូបថតមនុស្ស/Poster៖ រក្សាពណ៌ដើម ដំឡើង Contrast និង Sharpness ត្រឹមត្រូវ
+        # 🟢 MODE ឯកសារ/សន្លឹកកិច្ចការ៖ លុបស្រមោលក្រដាស ប៉ុន្តែរក្សាពណ៌រូបគំនូរ (ផ្លែឈើ/រូបភាព) ឱ្យនៅស្អាត 100%
         lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
         l, a, b = cv2.split(lab)
-        clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
-        cl = clahe.apply(l)
-        limg = cv2.merge((cl, a, b))
-        enhanced = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
         
-        # បន្ថែម Sharpness ល្មមមិនឱ្យបែករូប
-        kernel = np.array([[0, -0.5, 0], [-0.5, 3, -0.5], [0, -0.5, 0]])
-        enhanced = cv2.filter2D(enhanced, -1, kernel)
+        # គណនាដកស្រមោលចេញពី Lightness channel ដោយមិនប្រើ Adaptive Threshold
+        dilated = cv2.dilate(l, np.ones((7, 7), np.uint8))
+        bg = cv2.medianBlur(dilated, 21)
+        diff = 255 - cv2.absdiff(l, bg)
+        l_norm = cv2.normalize(diff, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+        
+        # ផ្គុំ Color Channel (a, b) ចូលវិញដើម្បីរក្សាពណ៌ដើម
+        enhanced_lab = cv2.merge((l_norm, a, b))
+        enhanced = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
+        
+        # ដំឡើងភាពច្បាស់លើអក្សរ និងខ្សែបន្ទាត់
+        gaussian = cv2.GaussianBlur(enhanced, (0, 0), 1.5)
+        enhanced = cv2.addWeighted(enhanced, 1.2, gaussian, -0.2, 0)
+
+    else:
+        # 🟢 MODE រូបថតមនុស្ស/វត្ថុ/Poster៖ បន្ថែម Sharpness HD រក្សាពណ៌ធម្មជាតិ និងមិនខ្មៅខ្លោច
+        smooth = cv2.bilateralFilter(img, d=5, sigmaColor=35, sigmaSpace=35)
+        
+        lab = cv2.cvtColor(smooth, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=1.2, tileGridSize=(8, 8))
+        l_enhanced = clahe.apply(l)
+        
+        enhanced_lab = cv2.merge((l_enhanced, a, b))
+        enhanced = cv2.cvtColor(enhanced_lab, cv2.COLOR_LAB2BGR)
+        
+        gaussian = cv2.GaussianBlur(enhanced, (0, 0), 2.0)
+        enhanced = cv2.addWeighted(enhanced, 1.25, gaussian, -0.25, 0)
 
     _, buffer = cv2.imencode(".jpg", enhanced, [int(cv2.IMWRITE_JPEG_QUALITY), 98])
     return Response(content=buffer.tobytes(), media_type="image/jpeg")
-# 3. បំប្លែង PDF ទៅ Word
+
+# ៣. API បំប្លែង PDF ទៅ Word
 @app.post("/api/pdf-to-word")
 async def pdf_to_word_api(file: UploadFile = File(...)):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
