@@ -31,18 +31,35 @@ async def remove_background_api(file: UploadFile = File(...)):
 
 # 2. បង្កើនភាពច្បាស់ (រក្សាពណ៌ធម្មជាតិ និងដំឡើង Sharpness ស្រាលៗ)
 @app.post("/api/enhance-doc")
-async def enhance_doc_api(file: UploadFile = File(...)):
+async def enhance_doc_api(file: UploadFile = File(...), mode: str = "photo"):
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     
-    # ប្រើ Unsharp Masking ដើម្បីបង្កើនភាពច្បាស់ដោយមិនបំផ្លាញពណ៌
-    gaussian = cv2.GaussianBlur(img, (0, 0), 2.0)
-    enhanced = cv2.addWeighted(img, 1.5, gaussian, -0.5, 0)
-    
-    _, buffer = cv2.imencode(".jpg", enhanced, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
-    return Response(content=buffer.tobytes(), media_type="image/jpeg")
+    if mode == "doc":
+        # សម្រាប់សន្លឹកកិច្ចការ/តារាងអក្សរ៖ បង្កើន Contrast អក្សរ និងសម្អាតផ្ទៃស
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        # ដកស្រមោលចេញដោយប្រើ Morphological filter
+        dilated = cv2.dilate(gray, np.ones((7, 7), np.uint8))
+        bg = cv2.medianBlur(dilated, 21)
+        diff = 255 - cv2.absdiff(gray, bg)
+        norm = cv2.normalize(diff, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX)
+        enhanced = cv2.cvtColor(norm, cv2.COLOR_GRAY2BGR)
+    else:
+        # សម្រាប់រូបថតមនុស្ស/Poster៖ រក្សាពណ៌ដើម ដំឡើង Contrast និង Sharpness ត្រឹមត្រូវ
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=1.5, tileGridSize=(8, 8))
+        cl = clahe.apply(l)
+        limg = cv2.merge((cl, a, b))
+        enhanced = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
+        
+        # បន្ថែម Sharpness ល្មមមិនឱ្យបែករូប
+        kernel = np.array([[0, -0.5, 0], [-0.5, 3, -0.5], [0, -0.5, 0]])
+        enhanced = cv2.filter2D(enhanced, -1, kernel)
 
+    _, buffer = cv2.imencode(".jpg", enhanced, [int(cv2.IMWRITE_JPEG_QUALITY), 98])
+    return Response(content=buffer.tobytes(), media_type="image/jpeg")
 # 3. បំប្លែង PDF ទៅ Word
 @app.post("/api/pdf-to-word")
 async def pdf_to_word_api(file: UploadFile = File(...)):
