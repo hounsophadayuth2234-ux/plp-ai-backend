@@ -18,45 +18,32 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Health Check Endpoint សម្រាប់ Render
 @app.api_route("/", methods=["GET", "HEAD"])
 def read_root():
     return {"status": "PLP AI Engine is running!"}
 
-# ១. API កាត់ Background
+# 1. AI កាត់ Background (ប្រើប្រាស់ AI Model u2net ផ្ទាល់ រក្សារូបមនុស្សស្អាត 100%)
 @app.post("/api/remove-bg")
 async def remove_background_api(file: UploadFile = File(...)):
     contents = await file.read()
     output = remove(contents)
     return Response(content=output, media_type="image/png")
 
-# ២. API បង្កើនភាពច្បាស់ (រក្សាពណ៌ដើម និង Sharpen)
+# 2. បង្កើនភាពច្បាស់ (រក្សាពណ៌ធម្មជាតិ និងដំឡើង Sharpness ស្រាលៗ)
 @app.post("/api/enhance-doc")
 async def enhance_doc_api(file: UploadFile = File(...)):
     contents = await file.read()
     nparr = np.frombuffer(contents, np.uint8)
     img = cv2.imdecode(nparr, cv2.IMREAD_COLOR)
     
-    # ដំឡើង Contrast លើ LAB Color Space ដើម្បីរក្សាពណ៌ដើម
-    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
-    l, a, b = cv2.split(lab)
+    # ប្រើ Unsharp Masking ដើម្បីបង្កើនភាពច្បាស់ដោយមិនបំផ្លាញពណ៌
+    gaussian = cv2.GaussianBlur(img, (0, 0), 2.0)
+    enhanced = cv2.addWeighted(img, 1.5, gaussian, -0.5, 0)
     
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    cl = clahe.apply(l)
-    
-    limg = cv2.merge((cl, a, b))
-    enhanced = cv2.cvtColor(limg, cv2.COLOR_LAB2BGR)
-    
-    # បន្ថែម Sharpening Filter ឱ្យអក្សរ និងរូបភាពច្បាស់
-    kernel = np.array([[0, -1, 0], 
-                       [-1, 5, -1], 
-                       [0, -1, 0]])
-    enhanced = cv2.filter2D(enhanced, -1, kernel)
-    
-    _, buffer = cv2.imencode(".jpg", enhanced, [int(cv2.IMWRITE_JPEG_QUALITY), 98])
+    _, buffer = cv2.imencode(".jpg", enhanced, [int(cv2.IMWRITE_JPEG_QUALITY), 95])
     return Response(content=buffer.tobytes(), media_type="image/jpeg")
 
-# ៣. API បំប្លែង PDF ទៅ Word
+# 3. បំប្លែង PDF ទៅ Word
 @app.post("/api/pdf-to-word")
 async def pdf_to_word_api(file: UploadFile = File(...)):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_pdf:
@@ -84,7 +71,6 @@ async def pdf_to_word_api(file: UploadFile = File(...)):
         if os.path.exists(tmp_docx_path):
             os.remove(tmp_docx_path)
 
-# 🟢 បន្ថែមផ្នែកខាងក្រោមនេះដើម្បី Binding Port របស់ Render
 if __name__ == "__main__":
     import uvicorn
     port = int(os.environ.get("PORT", 10000))
