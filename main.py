@@ -18,7 +18,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
+# បន្ថែម methods=["GET", "HEAD"] ដើម្បីឱ្យ Render ឆែក Health Check បានជោគជ័យ
+@app.api_route("/", methods=["GET", "HEAD"])
 def read_root():
     return {"status": "PLP AI Engine is running!"}
 
