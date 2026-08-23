@@ -1,6 +1,7 @@
 fastapi
 uvicorn
 rembg
+onnxruntime
 opencv-python-headless
 pdf2docx
 python-multipart
