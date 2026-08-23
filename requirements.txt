@@ -1,0 +1,7 @@
+fastapi
+uvicorn
+rembg
+opencv-python-headless
+pdf2docx
+python-multipart
+pillow
